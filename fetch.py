@@ -24,7 +24,7 @@ import fetch_gitlab
 
 
 def main():
-    load_dotenv()
+    load_dotenv(override=True)
 
     if not config.GITHUB_REPOS and not config.GITLAB_REPOS:
         print("ERROR: No repos configured. Edit config.py and add entries to GITHUB_REPOS or GITLAB_REPOS.", file=sys.stderr)

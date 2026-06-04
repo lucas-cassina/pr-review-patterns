@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-Fetch GitHub PR review comments from the past N days.
+Fetch GitHub PR review comments for PRs merged in the past N days.
 Returns a list of normalized comment dicts (same shape as fetch_gitlab.py).
+
+Window logic: include ALL comments on PRs whose merged_at falls within the
+window — regardless of when each comment was written. A PR open for a month
+and merged this week still contains relevant review feedback.
 """
 
 import sys
@@ -36,12 +40,6 @@ def _get_all(url, headers, params=None):
     return results
 
 
-def _user_login(obj):
-    """Safely extract login from a user/author object that may be null."""
-    user = obj.get("user") or obj.get("author") or {}
-    return user.get("login", "ghost") if user else "ghost"
-
-
 def _is_bot(login):
     return "[bot]" in login or login.endswith("-bot")
 
@@ -64,31 +62,30 @@ def fetch(token, repos, since, stderr=sys.stderr):
             continue
 
         for pr in prs:
-            updated = datetime.fromisoformat(pr["updated_at"].replace("Z", "+00:00"))
-            if updated < since:
-                break  # sorted by updated desc — safe to stop early
-            if not pr.get("merged_at"):
+            merged_at = pr.get("merged_at")
+            if not merged_at:
                 continue  # closed without merging — skip
 
-            pr_count += 1
+            merged = datetime.fromisoformat(merged_at.replace("Z", "+00:00"))
+            if merged < since:
+                break  # sorted by updated desc; merged PRs outside window → stop
+
             pr_number = pr["number"]
             pr_title = pr["title"]
             pr_author = (pr.get("user") or {}).get("login", "ghost")
+            pr_comments = []
 
             # Inline diff comments
             try:
                 for c in _get_all(
                     f"{BASE}/repos/{repo}/pulls/{pr_number}/comments",
                     headers,
-                    params={"per_page": 100, "since": since.isoformat()},
+                    params={"per_page": 100},
                 ):
-                    created = datetime.fromisoformat(c["created_at"].replace("Z", "+00:00"))
-                    if created < since:
-                        continue
                     author = (c.get("user") or {}).get("login", "ghost")
                     if _is_bot(author):
                         continue
-                    all_comments.append({
+                    pr_comments.append({
                         "platform": "github",
                         "repo": repo,
                         "pr_number": pr_number,
@@ -109,15 +106,12 @@ def fetch(token, repos, since, stderr=sys.stderr):
                 for c in _get_all(
                     f"{BASE}/repos/{repo}/issues/{pr_number}/comments",
                     headers,
-                    params={"per_page": 100, "since": since.isoformat()},
+                    params={"per_page": 100},
                 ):
-                    created = datetime.fromisoformat(c["created_at"].replace("Z", "+00:00"))
-                    if created < since:
-                        continue
                     author = (c.get("user") or {}).get("login", "ghost")
-                    if author == pr_author or _is_bot(author):
+                    if _is_bot(author):
                         continue
-                    all_comments.append({
+                    pr_comments.append({
                         "platform": "github",
                         "repo": repo,
                         "pr_number": pr_number,
@@ -132,5 +126,9 @@ def fetch(token, repos, since, stderr=sys.stderr):
                     })
             except requests.RequestException as e:
                 print(f"  WARNING: issue comments for PR #{pr_number}: {e}", file=stderr)
+
+            if pr_comments:
+                all_comments.extend(pr_comments)
+                pr_count += 1
 
     return all_comments, pr_count

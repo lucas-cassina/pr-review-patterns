@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-Fetch GitLab MR review comments from the past N days.
+Fetch GitLab MR review comments for MRs merged in the past N days.
 Returns a list of normalized comment dicts (same shape as fetch_github.py).
+
+Window logic: include ALL comments on MRs whose merged_at falls within the
+window — regardless of when each comment was written. A PR open for a month
+and merged this week still contains relevant review feedback.
 """
 
 import sys
@@ -65,9 +69,9 @@ def fetch(token, base_url, repos, since, stderr=sys.stderr):
                 headers,
                 params={
                     "state": "merged",
-                    "updated_after": since.isoformat(),
+                    "merged_after": since.isoformat(),
                     "per_page": 100,
-                    "order_by": "updated_at",
+                    "order_by": "merged_at",
                     "sort": "desc",
                 },
             )
@@ -76,9 +80,12 @@ def fetch(token, base_url, repos, since, stderr=sys.stderr):
             continue
 
         for mr in mrs:
-            updated = datetime.fromisoformat(mr["updated_at"].replace("Z", "+00:00"))
-            if updated < since:
-                break  # sorted by updated_at desc — all subsequent MRs are also stale
+            merged_at = mr.get("merged_at")
+            if not merged_at:
+                continue
+            merged = datetime.fromisoformat(merged_at.replace("Z", "+00:00"))
+            if merged < since:
+                break  # sorted by merged_at desc — all subsequent MRs are also outside window
 
             iid = mr["iid"]
             pr_title = mr["title"]
@@ -89,33 +96,24 @@ def fetch(token, base_url, repos, since, stderr=sys.stderr):
                 notes = _get_all(
                     f"{api}/merge_requests/{iid}/notes",
                     headers,
-                    # Sort asc by created_at so we can break early once we pass the window
-                    params={"per_page": 100, "order_by": "created_at", "sort": "asc"},
+                    params={"per_page": 100},
                 )
             except requests.RequestException as e:
                 print(f"  WARNING: could not fetch notes for MR !{iid}: {e}", file=stderr)
                 continue
 
-            mr_has_new_notes = False
+            mr_had_comments = False
             for note in notes:
-                # Skip system messages (merged, approved, pipeline events, etc.)
                 if note.get("system"):
                     continue
-
-                created = datetime.fromisoformat(note["created_at"].replace("Z", "+00:00"))
-                if created < since:
-                    continue  # notes sorted asc — older ones appear first, keep going
-                # Past this point all notes are within the window (asc sort)
-                mr_has_new_notes = True
 
                 note_author = note.get("author") or {}
                 author = note_author.get("username", "ghost")
 
-                if author == pr_author:
-                    continue
                 if _is_bot(note_author, author):
                     continue
 
+                mr_had_comments = True
                 position = note.get("position") or {}
                 path = position.get("new_path") or position.get("old_path") or ""
                 comment_type = "inline" if note.get("type") == "DiffNote" else "top-level"
@@ -134,7 +132,7 @@ def fetch(token, base_url, repos, since, stderr=sys.stderr):
                     "url": mr.get("web_url", ""),
                 })
 
-            if mr_has_new_notes:
+            if mr_had_comments:
                 pr_count += 1
 
     return all_comments, pr_count
