@@ -1,0 +1,6 @@
+.env
+output/raw_comments.json
+output/comments.json
+__pycache__/
+*.pyc
+.venv/
