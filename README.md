@@ -113,6 +113,10 @@ pr-review-patterns/
     └── YYYY-WW.md                             # Reporte semanal
 ```
 
+## Qué PRs/MRs analiza
+
+Solo los **mergeados** en el período configurado. PRs cerrados sin mergear y PRs abiertos no se incluyen.
+
 ## Qué filtra automáticamente
 
 - Comentarios de bots (`[bot]` en el nombre, sufijo `-bot`, flag `bot` de la API de GitLab)
