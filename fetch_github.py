@@ -57,7 +57,7 @@ def fetch(token, repos, since, stderr=sys.stderr):
             prs = _get_all(
                 f"{BASE}/repos/{repo}/pulls",
                 headers,
-                params={"state": "all", "per_page": 100, "sort": "updated", "direction": "desc"},
+                params={"state": "closed", "per_page": 100, "sort": "updated", "direction": "desc"},
             )
         except requests.RequestException as e:
             print(f"  WARNING: could not fetch PRs from {repo}: {e}", file=stderr)
@@ -67,6 +67,8 @@ def fetch(token, repos, since, stderr=sys.stderr):
             updated = datetime.fromisoformat(pr["updated_at"].replace("Z", "+00:00"))
             if updated < since:
                 break  # sorted by updated desc — safe to stop early
+            if not pr.get("merged_at"):
+                continue  # closed without merging — skip
 
             pr_count += 1
             pr_number = pr["number"]

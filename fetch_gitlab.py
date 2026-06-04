@@ -64,7 +64,7 @@ def fetch(token, base_url, repos, since, stderr=sys.stderr):
                 f"{api}/merge_requests",
                 headers,
                 params={
-                    "state": "all",
+                    "state": "merged",
                     "updated_after": since.isoformat(),
                     "per_page": 100,
                     "order_by": "updated_at",
