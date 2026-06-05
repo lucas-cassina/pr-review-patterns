@@ -1,6 +1,6 @@
 # PR Review Patterns
 
-Agente que procesa los comentarios de code review de la semana desde GitHub y/o GitLab, los agrupa por patrón y clasifica cada uno en:
+Agente que procesa todos los comentarios de code review de la semana desde GitHub y/o GitLab, los agrupa por patrón y clasifica cada uno en:
 
 - **linter** → propone la regla de ESLint/Stylelint a crear
 - **agent-rule** → genera el texto exacto listo para pegar en el archivo de reglas del agente (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/`)
@@ -9,11 +9,17 @@ Agente que procesa los comentarios de code review de la semana desde GitHub y/o 
 
 El output es un reporte `output/YYYY-WW.md` con los patrones ordenados por frecuencia, ejemplos reales de comentarios, y las acciones concretas recomendadas.
 
+## Qué analiza
+
+Todos los comentarios (inline y top-level) de los **PRs/MRs mergeados** en el período configurado. La ventana se aplica sobre `merged_at` — no sobre cuándo se escribió el comentario. Un PR abierto durante un mes y mergeado esta semana tiene feedback igual de relevante.
+
+Incluye auto-comentarios del autor del propio PR: en equipos chicos o con self-review, son señal válida de criterio de calidad.
+
 ## Requisitos
 
 - Python 3.10+
-- Token de GitHub con permisos `repo`
-- Token de GitLab con permiso `read_api` (para GitLab)
+- Token de GitHub con permisos `repo` (classic personal access token)
+- Token de GitLab con scope `read_api` (classic personal access token — no fine-grained)
 
 ## Setup
 
@@ -45,43 +51,27 @@ GITLAB_REPOS = [
 # Para GitLab self-hosted, cambiar la URL base
 GITLAB_BASE_URL = "https://gitlab.com"
 
-# Cuántos días atrás analizar
+# Cuántos días atrás analizar (se aplica sobre merged_at)
 DAYS_LOOKBACK = 7
 ```
 
-Se puede usar solo GitHub, solo GitLab, o ambos a la vez — el script detecta qué está configurado.
+Se puede usar solo GitHub, solo GitLab, o ambos a la vez.
 
 ## Uso
 
-El agente se puede correr desde tres herramientas. En todas, primero ejecuta `python3 fetch.py` para obtener los datos y luego el modelo analiza el JSON y genera el reporte.
+El agente se puede correr desde tres herramientas:
 
-### Claude Code
-
-```
-/review-patterns
-```
-
-### Codex CLI
-
-```
-usá el skill review-patterns
-```
-
-### Cursor
-
-En el Composer (Cmd+I):
-
-```
-@review-patterns
-```
-
----
+| Herramienta | Comando |
+|-------------|---------|
+| **Claude Code** | `/review-patterns` |
+| **Codex CLI** | `usá el skill review-patterns` |
+| **Cursor** | `@review-patterns` en el Composer |
 
 En los tres casos el agente:
-1. Corre `python3 fetch.py` para traer los comentarios de los últimos 7 días
+1. Corre `python3 fetch.py` para traer los comentarios del período configurado
 2. Analiza `output/comments.json` y agrupa por patrón semánticamente
 3. Escribe el reporte en `output/YYYY-WW.md`
-4. Pregunta si querés agregar las reglas `agent-rule` al archivo de reglas de tu herramienta
+4. Propone las reglas `agent-rule` y ofrece agregarlas al archivo de reglas de tu herramienta
 
 ### Correr el fetch manualmente
 
@@ -90,8 +80,8 @@ python3 fetch.py
 ```
 
 Escribe dos archivos:
-- `output/comments.json` — versión compacta para el agente (campos irrelevantes removidos, bodies truncados a 300 chars)
-- `output/raw_comments.json` — datos completos para debug y auditoría
+- `output/comments.json` — versión compacta para el agente (~35% menos tokens)
+- `output/raw_comments.json` — datos completos para debug
 
 ## Estructura
 
@@ -113,12 +103,17 @@ pr-review-patterns/
     └── YYYY-WW.md                             # Reporte semanal
 ```
 
-## Qué PRs/MRs analiza
-
-Solo los **mergeados** en el período configurado. PRs cerrados sin mergear y PRs abiertos no se incluyen.
-
 ## Qué filtra automáticamente
 
 - Comentarios de bots (`[bot]` en el nombre, sufijo `-bot`, flag `bot` de la API de GitLab)
-- Auto-comentarios del autor del PR/MR en su propio PR
 - Mensajes de sistema de GitLab (merge, approve, pipeline events)
+
+## Qué PRs/MRs analiza
+
+Solo los **mergeados** en el período de `DAYS_LOOKBACK` días. La ventana se mide por `merged_at`, no por `updated_at` ni por la fecha de los comentarios.
+
+## Nota sobre tokens de GitLab
+
+Usar **classic personal access token** con scope `read_api`. Los fine-grained tokens requieren permisos adicionales por proyecto (`Work Item: Read`) que no siempre están disponibles según el plan.
+
+URL para crear un classic token: `https://gitlab.com/-/user_settings/personal_access_tokens`
